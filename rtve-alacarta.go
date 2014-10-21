@@ -31,6 +31,12 @@ var dirs = map[string]string{
 	"log":      "/nas/3TB/Media/In/rtve/log",
 	"publish":  "/nas/3TB/Media/Video/Infantil",
 }
+var keys = map[string]string{
+	"oceano":  "pmku579tg465GDjf1287gDFFED56788C", // Tablet Clan
+	"carites": "167Sdfg8r4Kuo94hnserw4Zis87wtiVr", // Tablet RTVE
+	"orfeo":   "k0rf30jfpmbn8s0rcl4nTvE0ip3doRan", // Movil Clan
+	"caliope": "9qfr0ydg6dGJ3cho2p1mo284dgXcVsdi", // Movil RTVE
+}
 
 func stripchars(str, chr string) string {
 	return strings.Map(func(r rune) rune {
@@ -133,7 +139,13 @@ func orfeo(id int, t int64) string {
 	orfeo := cryptaes(secret, mobilekey)
 	return "http://www.rtve.es/ztnr/consumer/orfeo/video/" + orfeo
 }
+func ztnrurl(id int, t int64, clase string) string {
+	baseurl := fmt.Sprintf("http://www.rtve.es/ztnr/consumer/%s/video", clase)
 
+	secret := fmt.Sprintf("%d_es_%d", id, t)
+	url := fmt.Sprintf("%s/%s", baseurl, cryptaes(secret, keys[clase]))
+	return url
+}
 func oceano(id int, t int64) string {
 	tabletkey := "pmku579tg465GDjf1287gDFFED56788C"
 	secret := fmt.Sprintf("%d_es_%d", id, t)
@@ -190,15 +202,11 @@ func (e *Programas) get(programid int) {
 	log.Println("Tenemos episodios de", e.Page.Items[0].ProgramInfo.Title)
 }
 
-func (e *Episode) remote(offset int, doOceano bool) int {
-	t := time.Now().UTC().Round(time.Second).Add(time.Duration(offset) * time.Second)
+func (e *Episode) remote(class string) int {
+	t := time.Now().UTC().Round(time.Second)
 	ts := t.UnixNano() / int64(time.Millisecond)
 	var videourl string
-	if doOceano {
-		videourl = oceano(e.ID, ts)
-	} else {
-		videourl = orfeo(e.ID, ts)
-	}
+	videourl = ztnrurl(e.ID, ts, class)
 
 	res, err := http.Head(videourl)
 	if err != nil {
@@ -208,7 +216,6 @@ func (e *Episode) remote(offset int, doOceano bool) int {
 		e.Private.Size = res.ContentLength
 		e.Private.EndURL = res.Request.URL.String()
 		e.Private.URL = videourl
-		e.Private.Offset = offset
 	}
 	return res.StatusCode
 }
@@ -228,48 +235,18 @@ func (e *Episode) writeData() {
 }
 
 func (e *Episode) stat() {
-	if !e.statOceano(true) {
-		e.statOceano(false)
-	}
-}
-func (e *Episode) statOceano(doOceano bool) bool {
+	keyorder := []string{"oceano", "carites", "orfeo", "caliope"}
 
-	for i := 0; i < 1000; i = i + 20 {
-
-		r := e.remote(i, doOceano)
-		if r == 200 {
-			return true
-		}
-		r = e.remote(i+3600, doOceano) // UTC+1
-		if r == 200 {
-			log.Println(">", e)
-			return true
-		}
-
-		r = e.remote(i+7200, doOceano) // UTC+2
-		if r == 200 {
-			log.Println(i, ">", e)
-			return true
-		}
-
-		r = e.remote(i+60000, doOceano) // Fuzzing val
-		if r == 200 {
-			log.Println(">", e)
-			return true
-		}
-		r = e.remote(i+30000, doOceano) // Fuzz
-		if r == 200 {
-			log.Println(">", e)
-			return true
-		}
-		r = e.remote(i+90000, doOceano) // Fuzz
-		if r == 200 {
-			log.Println(">", e)
-			return true
+	gotcha := false
+	for _, k := range keyorder {
+		if e.remote(k) == 200 {
+			gotcha = true
+			break
 		}
 	}
-	log.Println("x", e)
-	return false
+	if !gotcha {
+		log.Println("No candidates for", e)
+	}
 }
 
 func (e *Episode) download() {
@@ -357,8 +334,8 @@ func (e *Episode) fromURL(url string) {
 	}
 	var v RemoteEpisode
 	read(url, &v)
-	log.Println(v)
-	//*e = v.Page.Items[0]
+	// log.Println(v)
+	*e = v.Page.Items[0]
 }
 func (e *Episode) fromFile(f string) {
 	content, err := ioutil.ReadFile(f)
@@ -374,6 +351,7 @@ func (e *Episode) fromFile(f string) {
 func (e *Episode) humanName() string {
 	return fmt.Sprintf("%s %d - %s", e.ProgramInfo.Title, e.Episode, e.LongTitle)
 }
+
 func publish() {
 	dirfiles, err := ioutil.ReadDir(dirs["download"])
 	if err != nil {
@@ -388,13 +366,23 @@ func publish() {
 			if err != nil {
 				log.Fatal(err)
 			}
+			videofile := path.Join(dirs["download"], fmt.Sprintf("%d.mp4", e.ID))
+
 			filename := fmt.Sprintf("%s.mp4", e.humanName())
 			publishFile := path.Join(dir, filename)
-			fmt.Println(e.ID, publishFile)
+			// fmt.Println(e.ID, publishFile)
 			// Episode debería tener las funciones de comprobar integridad
+			err = os.Link(videofile, publishFile)
+			if err != nil && !os.IsExist(err) {
+				log.Printf("Cannot publish: %d to %s", e.ID, publishFile)
+			} else {
+				log.Printf("Published %s to %s", videofile, publishFile)
+			}
+
 		}
 	}
 }
+
 func indexFiles() {
 	log.Println("Believe it or not I'm reindexing")
 	dirfiles, err := ioutil.ReadDir(dirs["download"])
@@ -406,7 +394,7 @@ func indexFiles() {
 		if path.Ext(file.Name()) == ".json" {
 			var e Episode
 			e.fromFile(path.Join(dirs["download"], file.Name()))
-			fmt.Println(file.Name(), e.ID, e.Private.Size)
+			// fmt.Println(file.Name(), e.ID, e.Private.Size)
 			// Episode debería tener las funciones de comprobar integridad
 		}
 	}
@@ -426,8 +414,8 @@ func remoteEpisode(i int) {
 	var e Episode
 	e.ID = i
 	e.fromURL(fmt.Sprintf("http://www.rtve.es/api/videos/%d", i))
-	log.Println("remoteEpisode", e)
 	e.stat()
+	log.Println("remoteEpisode", e.json())
 }
 
 func main() {
