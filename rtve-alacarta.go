@@ -60,6 +60,7 @@ type Episode struct {
 	}
 	Private struct {
 		URL    string
+		EndURL string
 		Offset int
 		Size   int64
 	}
@@ -168,12 +169,12 @@ func read(url string, v interface{}) error {
 			log.Fatal(err)
 		}
 	}
-
 	content, err := ioutil.ReadFile(cache)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	log.Println(string(content[:]))
 	err = json.Unmarshal(content, v)
 	if err != nil {
 		log.Fatal(err)
@@ -206,19 +207,22 @@ func (e *Episode) remote(offset int, doOceano bool) int {
 	}
 	if res.StatusCode == 200 {
 		e.Private.Size = res.ContentLength
+		e.Private.EndURL = res.Request.URL.String()
 		e.Private.URL = videourl
 		e.Private.Offset = offset
 	}
 	return res.StatusCode
 }
-
-func (e *Episode) writeData() {
+func (e *Episode) json() string {
 	b, err := json.MarshalIndent(e, "", "  ")
 	if err != nil {
 		fmt.Println("error:", err)
 	}
+	return string(b[:])
+}
+func (e *Episode) writeData() {
 	filename := fmt.Sprintf("%d.json", e.Id)
-	err = ioutil.WriteFile(path.Join(dirs["download"], filename), b, 0644)
+	err := ioutil.WriteFile(path.Join(dirs["download"], filename), []byte(e.json()), 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -235,7 +239,6 @@ func (e *Episode) statOceano(doOceano bool) bool {
 
 		r := e.remote(i, doOceano)
 		if r == 200 {
-			log.Println(i, ">", e)
 			return true
 		}
 		r = e.remote(i+3600, doOceano) // UTC+1
@@ -282,14 +285,14 @@ func (e *Episode) download() {
 	if !os.IsNotExist(err) {
 		if fi.Size() >= e.Private.Size && e.Qualities != nil && (fi.Size() == e.Qualities[0].Filesize || fi.Size() == e.Qualities[1].Filesize) {
 			// Our file is bigger and canonical
-			fmt.Fprintln(os.Stdout, err, "> Sile", fi.Size(), e.Private.Size)
+			// fmt.Fprintln(os.Stdout, err, "> Sile", fi.Size(), e.Private.Size)
 			return
 		}
 
 		if fi.Size() < e.Private.Size {
 			if e.Qualities != nil && (e.Private.Size == e.Qualities[0].Filesize || e.Private.Size == e.Qualities[1].Filesize) {
 				log.Println("Better version of", e.Id, fi.Size(), "available. Remote size:", e.Private.Size)
-				return
+
 			} else {
 				// There's a greater size available but it's not listed. Better mak a backup of the local file.
 				log.Println("Larger NOT CANONICAL version of", e.Id, fi.Size(), "available. Remote size:", e.Private.Size)
@@ -309,7 +312,7 @@ func (e *Episode) download() {
 		return
 	}
 	defer output.Close()
-	log.Println("Downloading", e.Id, e.Private.URL)
+	log.Println("Downloading", e.Id, e.Private.URL, e.Private.EndURL)
 
 	response, err := http.Get(e.Private.URL)
 	if err != nil {
@@ -347,7 +350,17 @@ func setupLog() *os.File {
 	return f
 
 }
-
+func (e *Episode) fromURL(url string) {
+	type RemoteEpisode struct {
+		Page struct {
+			Items []Episode
+		}
+	}
+	var v RemoteEpisode
+	read(url, &v)
+	log.Println(v)
+	//*e = v.Page.Items[0]
+}
 func (e *Episode) fromFile(f string) {
 	content, err := ioutil.ReadFile(f)
 	if err != nil {
@@ -383,16 +396,26 @@ func test() {
 	e.fromFile(path.Join(dirs["download"], "2808202.json"))
 	e.stat()
 	e.writeData()
-	fmt.Println(e.Id, e.Private.Size, e)
+	fmt.Println("Testing", e.json())
 	e.download()
 
 }
+func remoteEpisode(i int) {
+	var e Episode
+	e.Id = i
+	e.fromURL(fmt.Sprintf("http://www.rtve.es/api/videos/%d", i))
+	log.Println("remoteEpisode", e)
+	e.stat()
+}
+
 func main() {
 	setupLog()
 	dotest := false
 	doindex := false
+	doepisode := 0
 	flag.BoolVar(&doindex, "i", false, "reindex the whole thing")
 	flag.BoolVar(&dotest, "t", false, "test algorithms")
+	flag.IntVar(&doepisode, "e", 0, "single episode")
 	flag.Parse()
 	if dotest {
 		test()
@@ -400,6 +423,10 @@ func main() {
 	}
 	if doindex {
 		indexFiles()
+		return
+	}
+	if doepisode > 0 {
+		remoteEpisode(doepisode)
 		return
 	}
 	makeDirs()
@@ -418,8 +445,8 @@ func main() {
 		p.get(v)
 		for _, e := range p.Page.Items {
 			e.stat()
-			// e.writeData()
-			//e.download()
+			e.writeData() // should check if previous steps didn't work
+			e.download()
 		}
 	}
 }
