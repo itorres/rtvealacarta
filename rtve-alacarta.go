@@ -24,11 +24,12 @@ import (
 	"time"
 )
 
-var dirs map[string]string = map[string]string{
+var dirs = map[string]string{
 	"base":     "/nas/3TB/Media/In/rtve/",
 	"download": "/nas/3TB/Media/In/rtve/d",
 	"cache":    "/nas/3TB/Media/In/rtve/cache",
 	"log":      "/nas/3TB/Media/In/rtve/log",
+	"publish":  "/nas/3TB/Media/Video/Infantil",
 }
 
 func stripchars(str, chr string) string {
@@ -40,22 +41,17 @@ func stripchars(str, chr string) string {
 	}, str)
 }
 
-type Serie struct {
-	ShortTitle string
-	Id         int `json:",string"`
-	VideosRef  string
-}
-
-type Series struct {
-	Series []Serie
-}
-
+/*
+Episode is a representation of each episode
+*/
 type Episode struct {
-	ShortTitle  string
-	LongTitle   string
-	Episode     int
-	Id          int `json:",string"`
-	ProgramInfo struct {
+	ShortTitle       string
+	LongTitle        string
+	ShortDescription string
+	LongDescription  string
+	Episode          int
+	ID               int `json:",string"`
+	ProgramInfo      struct {
 		Title string
 	}
 	Private struct {
@@ -64,15 +60,18 @@ type Episode struct {
 		Offset int
 		Size   int64
 	}
-	Qualities []EpisodeFile
+	Qualities []struct {
+		Type     string
+		Preset   string
+		Filesize int64
+		Duration int
+	}
+	ProgramRef string
 }
 
-type EpisodeFile struct {
-	Type     string
-	Preset   string
-	Filesize int64
-	Duration int
-}
+/*
+Programas is a representation of the list of programs offered by the API
+*/
 type Programas struct {
 	Page struct {
 		Items []Episode
@@ -88,7 +87,7 @@ func makeDirs() {
 	}
 }
 
-func PKCS7Padding(data []byte) []byte {
+func pkcsS7Padding(data []byte) []byte {
 	blockSize := 16
 	padding := blockSize - len(data)%blockSize
 	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
@@ -96,7 +95,7 @@ func PKCS7Padding(data []byte) []byte {
 
 }
 
-func UnPKCS7Padding(data []byte) []byte {
+func unpkcs7Padding(data []byte) []byte {
 	length := len(data)
 	unpadding := int(data[length-1])
 	return data[:(length - unpadding)]
@@ -119,7 +118,7 @@ func cryptaes(text, key string) string {
 
 	encrypter := cipher.NewCBCEncrypter(ckey, iv)
 
-	str = PKCS7Padding(str)
+	str = pkcsS7Padding(str)
 	out := make([]byte, len(str))
 
 	encrypter.CryptBlocks(out, str)
@@ -196,9 +195,9 @@ func (e *Episode) remote(offset int, doOceano bool) int {
 	ts := t.UnixNano() / int64(time.Millisecond)
 	var videourl string
 	if doOceano {
-		videourl = oceano(e.Id, ts)
+		videourl = oceano(e.ID, ts)
 	} else {
-		videourl = orfeo(e.Id, ts)
+		videourl = orfeo(e.ID, ts)
 	}
 
 	res, err := http.Head(videourl)
@@ -221,7 +220,7 @@ func (e *Episode) json() string {
 	return string(b[:])
 }
 func (e *Episode) writeData() {
-	filename := fmt.Sprintf("%d.json", e.Id)
+	filename := fmt.Sprintf("%d.json", e.ID)
 	err := ioutil.WriteFile(path.Join(dirs["download"], filename), []byte(e.json()), 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -274,7 +273,7 @@ func (e *Episode) statOceano(doOceano bool) bool {
 }
 
 func (e *Episode) download() {
-	filename := fmt.Sprintf("%d.mp4", e.Id)
+	filename := fmt.Sprintf("%d.mp4", e.ID)
 	filename = path.Join(dirs["download"], filename)
 
 	fi, err := os.Stat(filename)
@@ -291,11 +290,11 @@ func (e *Episode) download() {
 
 		if fi.Size() < e.Private.Size {
 			if e.Qualities != nil && (e.Private.Size == e.Qualities[0].Filesize || e.Private.Size == e.Qualities[1].Filesize) {
-				log.Println("Better version of", e.Id, fi.Size(), "available. Remote size:", e.Private.Size)
+				log.Println("Better version of", e.ID, fi.Size(), "available. Remote size:", e.Private.Size)
 
 			} else {
 				// There's a greater size available but it's not listed. Better mak a backup of the local file.
-				log.Println("Larger NOT CANONICAL version of", e.Id, fi.Size(), "available. Remote size:", e.Private.Size)
+				log.Println("Larger NOT CANONICAL version of", e.ID, fi.Size(), "available. Remote size:", e.Private.Size)
 				log.Println("Backing up", filename, "to", filename+".bak")
 				err = os.Rename(filename, filename+".bak")
 				if err != nil {
@@ -312,7 +311,7 @@ func (e *Episode) download() {
 		return
 	}
 	defer output.Close()
-	log.Println("Downloading", e.Id, e.Private.URL, e.Private.EndURL)
+	log.Println("Downloading", e.ID, e.Private.URL, e.Private.EndURL)
 
 	response, err := http.Get(e.Private.URL)
 	if err != nil {
@@ -372,7 +371,30 @@ func (e *Episode) fromFile(f string) {
 		log.Fatal(err)
 	}
 }
-
+func (e *Episode) humanName() string {
+	return fmt.Sprintf("%s %d - %s", e.ProgramInfo.Title, e.Episode, e.LongTitle)
+}
+func publish() {
+	dirfiles, err := ioutil.ReadDir(dirs["download"])
+	if err != nil {
+		log.Fatalf("error reading dir: %v", err)
+	}
+	for _, file := range dirfiles {
+		if path.Ext(file.Name()) == ".json" {
+			var e Episode
+			e.fromFile(path.Join(dirs["download"], file.Name()))
+			dir := path.Join(dirs["publish"], e.ProgramInfo.Title)
+			err := os.MkdirAll(dir, 0755)
+			if err != nil {
+				log.Fatal(err)
+			}
+			filename := fmt.Sprintf("%s.mp4", e.humanName())
+			publishFile := path.Join(dir, filename)
+			fmt.Println(e.ID, publishFile)
+			// Episode debería tener las funciones de comprobar integridad
+		}
+	}
+}
 func indexFiles() {
 	log.Println("Believe it or not I'm reindexing")
 	dirfiles, err := ioutil.ReadDir(dirs["download"])
@@ -384,7 +406,7 @@ func indexFiles() {
 		if path.Ext(file.Name()) == ".json" {
 			var e Episode
 			e.fromFile(path.Join(dirs["download"], file.Name()))
-			fmt.Println(file.Name(), e.Id, e.Private.Size)
+			fmt.Println(file.Name(), e.ID, e.Private.Size)
 			// Episode debería tener las funciones de comprobar integridad
 		}
 	}
@@ -402,7 +424,7 @@ func test() {
 }
 func remoteEpisode(i int) {
 	var e Episode
-	e.Id = i
+	e.ID = i
 	e.fromURL(fmt.Sprintf("http://www.rtve.es/api/videos/%d", i))
 	log.Println("remoteEpisode", e)
 	e.stat()
@@ -423,6 +445,7 @@ func main() {
 	}
 	if doindex {
 		indexFiles()
+		publish()
 		return
 	}
 	if doepisode > 0 {
