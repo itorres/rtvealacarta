@@ -93,12 +93,19 @@ type Programa struct {
 
 type videosPrograma struct {
 	Page struct {
-		Items []Episode
+		TotalPages  int
+		Total       int
+		NumElements int
+		Number      int
+		Offset      int
+		Size        int
+		Items       []Episode
 	}
 }
 type Programas struct {
 	Page struct {
-		Items []Programa
+		TotalPages int
+		Items      []Programa
 	}
 }
 
@@ -213,14 +220,12 @@ func read(url string, v interface{}) error {
 }
 
 func (p *Programa) getVideos(programid int) {
-	type RemoteEpisode struct {
-		Page struct {
-			Items []Episode
-		}
-	}
-
 	url := fmt.Sprintf("http://www.rtve.es/api/programas/%d/videos?size=60", programid)
 	var videos videosPrograma
+	if videos.Page.TotalPages > 1 {
+		log.Printf("Warning: More than 1 page of results: %d. NumElements: ", videos.Page.TotalPages, videos.Page.NumElements)
+	}
+
 	err := read(url, &videos)
 	if err != nil {
 		log.Fatal(err)
