@@ -57,14 +57,17 @@ type Episode struct {
 	LongDescription  string
 	Episode          int
 	ID               int `json:",string"`
+	ProgramRef       string
 	ProgramInfo      struct {
 		Title string
 	}
 	Private struct {
-		URL    string
-		EndURL string
-		Offset int
-		Size   int64
+		URL       string
+		EndURL    string
+		Offset    int
+		Size      int64
+		Ext       string
+		Videofile string
 	}
 	Qualities []struct {
 		Type     string
@@ -72,15 +75,30 @@ type Episode struct {
 		Filesize int64
 		Duration int
 	}
-	ProgramRef string
 }
 
 /*
-Programas is a representation of the list of programs offered by the API
+Programa is a representation of the list of available episodes of a program
 */
-type Programas struct {
+type Programa struct {
+	Name             string
+	WebOficial       string
+	Description      string
+	LongTitle        string
+	ShortDescription string
+	LongDescription  string
+	ID               int `json:",string"`
+	episodios        []Episode
+}
+
+type videosPrograma struct {
 	Page struct {
 		Items []Episode
+	}
+}
+type Programas struct {
+	Page struct {
+		Items []Programa
 	}
 }
 
@@ -165,7 +183,6 @@ func read(url string, v interface{}) error {
 	if err != nil && !os.IsNotExist(err) {
 		log.Fatal(err)
 	}
-
 	if os.IsNotExist(err) || time.Now().Unix()-fi.ModTime().Unix() > 12*3600 {
 		log.Println("seguimos")
 		// Cache for 12h
@@ -180,12 +197,14 @@ func read(url string, v interface{}) error {
 			log.Fatal(err)
 		}
 	}
+
 	content, err := ioutil.ReadFile(cache)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Println(string(content[:]))
+	//	log.Println(string(content[:]))
+
 	err = json.Unmarshal(content, v)
 	if err != nil {
 		log.Fatal(err)
@@ -193,13 +212,21 @@ func read(url string, v interface{}) error {
 	return nil
 }
 
-func (e *Programas) get(programid int) {
+func (p *Programa) getVideos(programid int) {
+	type RemoteEpisode struct {
+		Page struct {
+			Items []Episode
+		}
+	}
+
 	url := fmt.Sprintf("http://www.rtve.es/api/programas/%d/videos?size=60", programid)
-	err := read(url, e)
+	var videos videosPrograma
+	err := read(url, &videos)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("Tenemos episodios de", e.Page.Items[0].ProgramInfo.Title)
+	p.episodios = videos.Page.Items
+	log.Println("Tenemos episodios de", videos.Page.Items[0].ProgramInfo.Title)
 }
 
 func (e *Episode) remote(class string) int {
@@ -213,6 +240,12 @@ func (e *Episode) remote(class string) int {
 		log.Fatal(err)
 	}
 	if res.StatusCode == 200 {
+		e.Private.Ext = path.Ext(res.Request.URL.Path)
+		if e.Private.Ext == "" {
+			e.Private.Ext = ".mp4"
+			log.Println("WARNING: Empty extension. Forcing mp4.")
+		}
+		e.Private.Videofile = fmt.Sprintf("%d%s", e.ID, e.Private.Ext)
 		e.Private.Size = res.ContentLength
 		e.Private.EndURL = res.Request.URL.String()
 		e.Private.URL = videourl
@@ -250,8 +283,10 @@ func (e *Episode) stat() {
 }
 
 func (e *Episode) download() {
-	filename := fmt.Sprintf("%d.mp4", e.ID)
-	filename = path.Join(dirs["download"], filename)
+	if e.Private.Videofile == "" {
+		log.Fatal("e.Private.Videofile is empty when trying to download")
+	}
+	filename := path.Join(dirs["download"], e.Private.Videofile)
 
 	fi, err := os.Stat(filename)
 	if err != nil && !os.IsNotExist(err) {
@@ -288,7 +323,7 @@ func (e *Episode) download() {
 		return
 	}
 	defer output.Close()
-	log.Println("Downloading", e.ID, e.Private.URL, e.Private.EndURL)
+	log.Println("Downloading", e.ID, e.Private.Videofile, e.Private.URL, e.Private.EndURL)
 
 	response, err := http.Get(e.Private.URL)
 	if err != nil {
@@ -366,9 +401,10 @@ func publish() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			videofile := path.Join(dirs["download"], fmt.Sprintf("%d.mp4", e.ID))
 
-			filename := fmt.Sprintf("%s.mp4", e.humanName())
+			videofile := path.Join(dirs["download"], e.Private.Videofile)
+
+			filename := fmt.Sprintf("%s%s", e.humanName(), e.Private.Ext)
 			publishFile := path.Join(dir, filename)
 			// fmt.Println(e.ID, publishFile)
 			// Episode debería tener las funciones de comprobar integridad
@@ -400,35 +436,59 @@ func indexFiles() {
 	}
 }
 
-func test() {
+func test(id int) {
 	// 2808202
 	var e Episode
-	e.fromFile(path.Join(dirs["download"], "2808202.json"))
+	e.fromFile(path.Join(dirs["download"], fmt.Sprintf("%d.json", id)))
 	e.stat()
 	e.writeData()
-	fmt.Println("Testing", e.json())
+	fmt.Println("Downloading", e.json())
 	e.download()
 
 }
-func remoteEpisode(i int) {
+func remoteEpisode(id int) {
 	var e Episode
-	e.ID = i
-	e.fromURL(fmt.Sprintf("http://www.rtve.es/api/videos/%d", i))
+	e.ID = id
+	e.fromURL(fmt.Sprintf("http://www.rtve.es/api/videos/%d", id))
 	e.stat()
 	log.Println("remoteEpisode", e.json())
+	e.writeData()
+	e.download()
+
 }
 
+func listPrograms() {
+	type RemotePrograms struct {
+		Page struct {
+			Items []Programa
+		}
+	}
+	var rp RemotePrograms
+	err := read("http://www.rtve.es/api/clan/series/spanish/todas", &rp)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, v := range rp.Page.Items {
+		fmt.Printf("%d, // %s\n", v.ID, v.Name)
+	}
+}
 func main() {
 	setupLog()
-	dotest := false
+	dotest := 0
 	doindex := false
+	dolist := false
 	doepisode := 0
 	flag.BoolVar(&doindex, "i", false, "reindex the whole thing")
-	flag.BoolVar(&dotest, "t", false, "test algorithms")
+	flag.BoolVar(&dolist, "l", false, "list programs")
+	flag.IntVar(&dotest, "t", 0, "test algorithms")
 	flag.IntVar(&doepisode, "e", 0, "single episode")
 	flag.Parse()
-	if dotest {
-		test()
+	if dolist {
+		listPrograms()
+		return
+	}
+	if dotest > 0 {
+		test(dotest)
 		return
 	}
 	if doindex {
@@ -444,17 +504,19 @@ func main() {
 
 	log.Println("marchando")
 	programids := []int{
-		80170, // Pokemon XY
-		44450, // Pokemon Advanced Challenge
-		41651, // Pokemon Advanced
-		49230, // Pokemon Black White
-		68590, // Pokemon Black White Teselia
+		80170, // Pokémon XY
+		44450, // Pokémon Advanced Challenge
+		41651, // Pokémon Advanced
+		68590, // Pokémon Negro y Blanco: Aventuras en Teselia
+		49230, // Pokémon Negro y Blanco
 		50650, // Desafío Champions Sendokai
+		49750, // Scooby Doo Misterios S.A.
+		51350, // Jelly Jamm
 	}
 	for _, v := range programids {
-		var p Programas
-		p.get(v)
-		for _, e := range p.Page.Items {
+		var p Programa
+		p.getVideos(v)
+		for _, e := range p.episodios {
 			e.stat()
 			e.writeData() // should check if previous steps didn't work
 			e.download()
