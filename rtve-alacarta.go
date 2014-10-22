@@ -415,8 +415,10 @@ func publish() {
 			// fmt.Println(e.ID, publishFile)
 			// Episode debería tener las funciones de comprobar integridad
 			err = os.Link(videofile, publishFile)
-			if err != nil && !os.IsExist(err) {
-				log.Printf("Cannot publish: %d to %s", e.ID, publishFile)
+			if err != nil {
+				if !os.IsExist(err) {
+					log.Printf("Cannot publish: %d to %s", e.ID, publishFile)
+				}
 			} else {
 				log.Printf("Published %s to %s", videofile, publishFile)
 			}
