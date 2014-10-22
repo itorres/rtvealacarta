@@ -267,7 +267,7 @@ func (e *Episode) writeData() {
 	}
 }
 
-func (e *Episode) stat() {
+func (e *Episode) stat() bool {
 	keyorder := []string{"oceano", "carites", "orfeo", "caliope"}
 
 	gotcha := false
@@ -280,6 +280,7 @@ func (e *Episode) stat() {
 	if !gotcha {
 		log.Println("No candidates for", e)
 	}
+	return gotcha
 }
 
 func (e *Episode) download() {
@@ -437,23 +438,20 @@ func indexFiles() {
 }
 
 func test(id int) {
-	// 2808202
-	var e Episode
-	e.fromFile(path.Join(dirs["download"], fmt.Sprintf("%d.json", id)))
-	e.stat()
-	e.writeData()
-	fmt.Println("Downloading", e.json())
-	e.download()
 
 }
 func remoteEpisode(id int) {
 	var e Episode
 	e.ID = id
+	log.Println("Getting remoteEpisode", e.json())
+
 	e.fromURL(fmt.Sprintf("http://www.rtve.es/api/videos/%d", id))
-	e.stat()
-	log.Println("remoteEpisode", e.json())
-	e.writeData()
-	e.download()
+	log.Println("Stat of remoteEpisode", e.json())
+	if e.stat() {
+		log.Println("remoteEpisode", e.json())
+		e.writeData() // should check if previous steps didn't work
+		e.download()
+	}
 
 }
 
@@ -517,9 +515,11 @@ func main() {
 		var p Programa
 		p.getVideos(v)
 		for _, e := range p.episodios {
-			e.stat()
-			e.writeData() // should check if previous steps didn't work
-			e.download()
+			if e.stat() {
+				e.writeData() // should check if previous steps didn't work
+				e.download()
+
+			}
 		}
 	}
 }
