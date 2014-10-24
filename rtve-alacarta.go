@@ -24,6 +24,7 @@ import (
 	"time"
 )
 
+var verbose = false
 var dirs = map[string]string{
 	"base":     "/nas/3TB/Media/In/rtve/",
 	"download": "/nas/3TB/Media/In/rtve/d",
@@ -190,8 +191,8 @@ func read(url string, v interface{}) error {
 	if err != nil && !os.IsNotExist(err) {
 		log.Fatal(err)
 	}
-	if os.IsNotExist(err) || time.Now().Unix()-fi.ModTime().Unix() > 12*3600 {
-		log.Println("seguimos")
+	if os.IsNotExist(err) || time.Now().Unix()-fi.ModTime().Unix() > 3*3600 {
+		log.Println("Downloading", url, "to cache")
 		// Cache for 12h
 		res, err := http.Get(url)
 		content, err := ioutil.ReadAll(res.Body)
@@ -274,6 +275,9 @@ func (e *Episode) writeData() {
 
 func (e *Episode) stat() bool {
 	keyorder := []string{"oceano", "carites", "orfeo", "caliope"}
+	if verbose {
+		fmt.Fprintln(os.Stderr, "e.stat()", e.ID, e.humanName())
+	}
 
 	gotcha := false
 	for _, k := range keyorder {
@@ -486,6 +490,7 @@ func main() {
 	doindex := false
 	dolist := false
 	doepisode := 0
+	flag.BoolVar(&verbose, "v", false, "verbose")
 	flag.BoolVar(&doindex, "i", false, "reindex the whole thing")
 	flag.BoolVar(&dolist, "l", false, "list programs")
 	flag.IntVar(&dotest, "t", 0, "test algorithms")
