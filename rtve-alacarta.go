@@ -402,6 +402,9 @@ func publish() {
 		if path.Ext(file.Name()) == ".json" {
 			var e Episode
 			e.fromFile(path.Join(dirs["download"], file.Name()))
+			if e.ProgramInfo.Title == "Turno de oficio" {
+				continue
+			}
 			dir := path.Join(dirs["publish"], e.ProgramInfo.Title)
 			err := os.MkdirAll(dir, 0755)
 			if err != nil {
@@ -517,6 +520,8 @@ func main() {
 		50650, // Desafío Champions Sendokai
 		49750, // Scooby Doo Misterios S.A.
 		51350, // Jelly Jamm
+		78590, // Turno de Oficio
+		70450, // Planeta Imaginario
 	}
 	for _, v := range programids {
 		var p Programa
