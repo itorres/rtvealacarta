@@ -530,7 +530,8 @@ func main() {
 			if e.stat() {
 				e.writeData() // should check if previous steps didn't work
 				e.download()
-
+			} else {
+				log.Println("Cannot stat", e)
 			}
 		}
 	}
