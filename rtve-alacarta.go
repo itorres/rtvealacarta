@@ -329,7 +329,7 @@ func (e *Episode) download() {
 		return
 	}
 	defer output.Close()
-	log.Println("Downloading", e.ID, e.Private.Videofile, e.Private.URL, e.Private.EndURL)
+	log.Printf("Downloading %s (%d MB) from %s (%s)", e.Private.Videofile, e.Private.Size/1024/1024, e.Private.URL, e.Private.EndURL)
 
 	response, err := http.Get(e.Private.URL)
 	if err != nil {
