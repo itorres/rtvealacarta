@@ -261,7 +261,7 @@ func (e *Episode) remote(class string) int {
 func (e *Episode) json() string {
 	b, err := json.MarshalIndent(e, "", "  ")
 	if err != nil {
-		fmt.Println("error:", err)
+		log.Println("json marshall error:", err)
 	}
 	return string(b[:])
 }
@@ -273,11 +273,14 @@ func (e *Episode) writeData() {
 	}
 }
 
+func debug(wat... interface{}) {
+	if verbose {
+	fmt.Fprintln(os.Stderr, wat)
+}
+}
 func (e *Episode) stat() bool {
 	keyorder := []string{"oceano", "carites", "orfeo", "caliope"}
-	if verbose {
-		fmt.Fprintln(os.Stderr, "e.stat()", e.ID, e.humanName())
-	}
+debug("e.stat()", e.ID, e.humanName())
 
 	gotcha := false
 	for _, k := range keyorder {
@@ -303,15 +306,22 @@ func (e *Episode) download() {
 		log.Fatal(err)
 	}
 
+	sizes := map[int64]bool{}
 	if !os.IsNotExist(err) {
-		if fi.Size() >= e.Private.Size && e.Qualities != nil && (fi.Size() == e.Qualities[0].Filesize || fi.Size() == e.Qualities[1].Filesize) {
+		if e.Qualities != nil {
+			for _,q := range e.Qualities {
+sizes[q.Filesize]=true
+}
+}
+debug("sizes",sizes, len(sizes),"sizes[fi.Size()]=", sizes[fi.Size()],"sizes[fi.Size()+1]=", sizes[fi.Size()+1])
+		if fi.Size() >= e.Private.Size && sizes[fi.Size()] {
 			// Our file is bigger and canonical
 			// fmt.Fprintln(os.Stdout, err, "> Sile", fi.Size(), e.Private.Size)
 			return
 		}
 
 		if fi.Size() < e.Private.Size {
-			if e.Qualities != nil && (e.Private.Size == e.Qualities[0].Filesize || e.Private.Size == e.Qualities[1].Filesize) {
+			if sizes[e.Private.Size] {
 				log.Println("Better version of", e.ID, fi.Size(), "available. Remote size:", e.Private.Size)
 
 			} else {
@@ -320,7 +330,7 @@ func (e *Episode) download() {
 				log.Println("Backing up", filename, "to", filename+".bak")
 				err = os.Rename(filename, filename+".bak")
 				if err != nil {
-					fmt.Println("Error moving", filename, "to", filename+".bak", err)
+					log.Println("Error moving", filename, "to", filename+".bak", err)
 					return
 				}
 			}
@@ -329,7 +339,7 @@ func (e *Episode) download() {
 
 	output, err := os.Create(filename + ".temp")
 	if err != nil {
-		fmt.Println("Error while creating", filename, "-", err)
+		log.Println("Error while creating", filename, "-", err)
 		return
 	}
 	defer output.Close()
@@ -337,26 +347,26 @@ func (e *Episode) download() {
 
 	response, err := http.Get(e.Private.URL)
 	if err != nil {
-		fmt.Println("Error while downloading", e.Private.URL, "-", err)
+		log.Println("Error while downloading", e.Private.URL, "-", err)
 		return
 	}
 	defer response.Body.Close()
 
 	n, err := io.Copy(output, response.Body)
 	if err != nil {
-		fmt.Println("Error while downloading", e.Private.URL, "-", err)
+		log.Println("Error while downloading", e.Private.URL, "-", err)
 		return
 	}
-	fmt.Println(n, "bytes downloaded.")
 	err = os.Rename(filename+".temp", filename)
 	if err != nil {
-		fmt.Println("Error moving", filename+".temp", "to", filename, err)
+		log.Println("Error moving", filename+".temp", "to", filename, err)
 		return
 	}
+	log.Println(filename, "downloaded.", n, "bytes.")
 
 }
 func setupLog() *os.File {
-	t, _ := time.Now().Truncate(time.Hour).MarshalText()
+	t, _ := time.Now().UTC().Truncate(time.Hour).MarshalText()
 	ts := string(t[:])
 
 	filename := fmt.Sprintf("%s.log", ts)
@@ -496,6 +506,7 @@ func main() {
 	flag.IntVar(&dotest, "t", 0, "test algorithms")
 	flag.IntVar(&doepisode, "e", 0, "single episode")
 	flag.Parse()
+	debug("verbose active")
 	if dolist {
 		listPrograms()
 		return
@@ -515,7 +526,8 @@ func main() {
 	}
 	makeDirs()
 
-	log.Println("marchando")
+	log.Printf("Starting %s (PID: %d) at %s", os.Args[0], os.Getpid, time.Now().UTC())
+
 	programids := []int{
 		80170, // Pokémon XY
 		44450, // Pokémon Advanced Challenge
@@ -540,4 +552,5 @@ func main() {
 			}
 		}
 	}
+	log.Printf("Finishing %s (PID: %d) at %s", os.Args[0], os.Getpid, time.Now().UTC())
 }
