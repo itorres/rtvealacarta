@@ -539,6 +539,12 @@ func main() {
 		51350, // Jelly Jamm
 		78590, // Turno de Oficio
 		70450, // Planeta Imaginario
+		57030, // Ruy, el pequeño Cid 
+		57050, // DArtacan y los tres mosqueperros
+		57051, // La vuelta al mundo de Willy Fog
+		57052, // David el gnomo
+		82170, // Mortadelo y filemon
+		61750, // Maya
 	}
 	for _, v := range programids {
 		var p Programa
