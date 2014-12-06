@@ -25,12 +25,13 @@ import (
 )
 
 var verbose = false
+var nocache = false
 var dirs = map[string]string{
-	"base":     "/nas/3TB/Media/In/rtve/",
-	"download": "/nas/3TB/Media/In/rtve/d",
-	"cache":    "/nas/3TB/Media/In/rtve/cache",
-	"log":      "/nas/3TB/Media/In/rtve/log",
-	"publish":  "/nas/3TB/Media/Video/Infantil",
+	"base":     "/nas/4TB2/Media/In/rtve/",
+	"download": "/nas/4TB2/Media/In/rtve/d",
+	"cache":    "/nas/4TB2/Media/In/rtve/cache",
+	"log":      "/nas/4TB2/Media/In/rtve/log",
+	"publish":  "/nas/4TB2/Media/Video/Infantil",
 }
 var keys = map[string]string{
 	"oceano":  "pmku579tg465GDjf1287gDFFED56788C", // Tablet Clan
@@ -191,10 +192,12 @@ func read(url string, v interface{}) error {
 	if err != nil && !os.IsNotExist(err) {
 		log.Fatal(err)
 	}
-	if os.IsNotExist(err) || time.Now().Unix()-fi.ModTime().Unix() > 3*3600 {
+	if nocache || os.IsNotExist(err) || time.Now().Unix()-fi.ModTime().Unix() > 3*3600 {
 		log.Println("Downloading", url, "to cache")
 		// Cache for 12h
 		res, err := http.Get(url)
+		log.Printf("Reading %v", res.Request)
+
 		content, err := ioutil.ReadAll(res.Body)
 		res.Body.Close()
 		if err != nil {
@@ -273,14 +276,14 @@ func (e *Episode) writeData() {
 	}
 }
 
-func debug(wat... interface{}) {
+func debug(wat ...interface{}) {
 	if verbose {
-	fmt.Fprintln(os.Stderr, wat)
-}
+		fmt.Fprintln(os.Stderr, wat)
+	}
 }
 func (e *Episode) stat() bool {
 	keyorder := []string{"oceano", "carites", "orfeo", "caliope"}
-debug("e.stat()", e.ID, e.humanName())
+	debug("e.stat()", e.ID, e.humanName())
 
 	gotcha := false
 	for _, k := range keyorder {
@@ -309,11 +312,11 @@ func (e *Episode) download() {
 	sizes := map[int64]bool{}
 	if !os.IsNotExist(err) {
 		if e.Qualities != nil {
-			for _,q := range e.Qualities {
-sizes[q.Filesize]=true
-}
-}
-debug("sizes",sizes, len(sizes),"sizes[fi.Size()]=", sizes[fi.Size()],"sizes[fi.Size()+1]=", sizes[fi.Size()+1])
+			for _, q := range e.Qualities {
+				sizes[q.Filesize] = true
+			}
+		}
+		debug("sizes", sizes, len(sizes), "sizes[fi.Size()]=", sizes[fi.Size()], "sizes[fi.Size()+1]=", sizes[fi.Size()+1])
 		if fi.Size() >= e.Private.Size && sizes[fi.Size()] {
 			// Our file is bigger and canonical
 			// fmt.Fprintln(os.Stdout, err, "> Sile", fi.Size(), e.Private.Size)
@@ -482,11 +485,16 @@ func remoteEpisode(id int) {
 func listPrograms() {
 	type RemotePrograms struct {
 		Page struct {
-			Items []Programa
+			Items      []Programa
+			Number     int
+			TotalPages int
 		}
 	}
 	var rp RemotePrograms
-	err := read("http://www.rtve.es/api/clan/series/spanish/todas", &rp)
+	// var drp RemotePrograms
+	page := 1
+	url := fmt.Sprintf("http://www.rtve.es/api/agr-programas/490/programas.json?size=60&page=%d", page)
+	err := read(url, &rp)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -494,12 +502,14 @@ func listPrograms() {
 		fmt.Printf("%d, // %s\n", v.ID, v.Name)
 	}
 }
+
 func main() {
 	setupLog()
 	dotest := 0
 	doindex := false
 	dolist := false
 	doepisode := 0
+	flag.BoolVar(&nocache, "c", false, "nocache")
 	flag.BoolVar(&verbose, "v", false, "verbose")
 	flag.BoolVar(&doindex, "i", false, "reindex the whole thing")
 	flag.BoolVar(&dolist, "l", false, "list programs")
@@ -532,6 +542,7 @@ func main() {
 		80170, // Pokémon XY
 		44450, // Pokémon Advanced Challenge
 		41651, // Pokémon Advanced
+		52830, // Pokémon Advanced Battle
 		68590, // Pokémon Negro y Blanco: Aventuras en Teselia
 		49230, // Pokémon Negro y Blanco
 		50650, // Desafío Champions Sendokai
@@ -539,12 +550,14 @@ func main() {
 		51350, // Jelly Jamm
 		78590, // Turno de Oficio
 		70450, // Planeta Imaginario
-		57030, // Ruy, el pequeño Cid 
+		57030, // Ruy, el pequeño Cid
 		57050, // DArtacan y los tres mosqueperros
 		57051, // La vuelta al mundo de Willy Fog
 		57052, // David el gnomo
 		82170, // Mortadelo y filemon
 		61750, // Maya
+		74752, // Slugterra
+		78210, // Los Aurones
 	}
 	for _, v := range programids {
 		var p Programa
