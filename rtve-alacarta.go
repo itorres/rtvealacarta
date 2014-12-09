@@ -24,22 +24,6 @@ import (
 	"time"
 )
 
-var verbose = false
-var nocache = false
-var dirs = map[string]string{
-	"base":     "/nas/4TB2/Media/In/rtve/",
-	"download": "/nas/4TB2/Media/In/rtve/d",
-	"cache":    "/nas/4TB2/Media/In/rtve/cache",
-	"log":      "/nas/4TB2/Media/In/rtve/log",
-	"publish":  "/nas/4TB2/Media/Video/Infantil",
-}
-var keys = map[string]string{
-	"oceano":  "pmku579tg465GDjf1287gDFFED56788C", // Tablet Clan
-	"carites": "167Sdfg8r4Kuo94hnserw4Zis87wtiVr", // Tablet RTVE
-	"orfeo":   "k0rf30jfpmbn8s0rcl4nTvE0ip3doRan", // Movil Clan
-	"caliope": "9qfr0ydg6dGJ3cho2p1mo284dgXcVsdi", // Movil RTVE
-}
-
 func stripchars(str, chr string) string {
 	return strings.Map(func(r rune) rune {
 		if strings.IndexRune(chr, r) < 0 {
@@ -47,6 +31,31 @@ func stripchars(str, chr string) string {
 		}
 		return -1
 	}, str)
+}
+
+type Config struct {
+	Dirs     map[string]string
+	Keys     map[string]string
+	Programs []ProgramConfig
+	Verbose  bool
+	Nocache  bool
+}
+
+type ProgramConfig struct {
+	Id   int
+	Name string
+}
+
+func (c *Config) load(f string) {
+	content, err := ioutil.ReadFile(f)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = json.Unmarshal(content, c)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 /*
@@ -112,7 +121,7 @@ type Programas struct {
 }
 
 func makeDirs() {
-	for _, dir := range dirs {
+	for _, dir := range config.Dirs {
 		err := os.MkdirAll(dir, 0755)
 		if err != nil {
 			log.Fatal(err)
@@ -170,7 +179,7 @@ func ztnrurl(id int, t int64, clase string) string {
 	baseurl := fmt.Sprintf("http://www.rtve.es/ztnr/consumer/%s/video", clase)
 
 	secret := fmt.Sprintf("%d_es_%d", id, t)
-	url := fmt.Sprintf("%s/%s", baseurl, cryptaes(secret, keys[clase]))
+	url := fmt.Sprintf("%s/%s", baseurl, cryptaes(secret, config.Keys[clase]))
 	return url
 }
 func oceano(id int, t int64) string {
@@ -182,7 +191,7 @@ func oceano(id int, t int64) string {
 
 func cacheFile(url string) string {
 	file := fmt.Sprintf("%x", sha256.Sum256([]byte(url)))
-	path := path.Join(dirs["cache"], file)
+	path := path.Join(config.Dirs["cache"], file)
 	return path
 }
 
@@ -192,7 +201,7 @@ func read(url string, v interface{}) error {
 	if err != nil && !os.IsNotExist(err) {
 		log.Fatal(err)
 	}
-	if nocache || os.IsNotExist(err) || time.Now().Unix()-fi.ModTime().Unix() > 3*3600 {
+	if config.Nocache || os.IsNotExist(err) || time.Now().Unix()-fi.ModTime().Unix() > 3*3600 {
 		log.Println("Downloading", url, "to cache")
 		// Cache for 12h
 		res, err := http.Get(url)
@@ -270,14 +279,14 @@ func (e *Episode) json() string {
 }
 func (e *Episode) writeData() {
 	filename := fmt.Sprintf("%d.json", e.ID)
-	err := ioutil.WriteFile(path.Join(dirs["download"], filename), []byte(e.json()), 0644)
+	err := ioutil.WriteFile(path.Join(config.Dirs["download"], filename), []byte(e.json()), 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
 func debug(wat ...interface{}) {
-	if verbose {
+	if config.Verbose {
 		fmt.Fprintln(os.Stderr, wat)
 	}
 }
@@ -302,7 +311,7 @@ func (e *Episode) download() {
 	if e.Private.Videofile == "" {
 		log.Fatal("e.Private.Videofile is empty when trying to download")
 	}
-	filename := path.Join(dirs["download"], e.Private.Videofile)
+	filename := path.Join(config.Dirs["download"], e.Private.Videofile)
 
 	fi, err := os.Stat(filename)
 	if err != nil && !os.IsNotExist(err) {
@@ -373,7 +382,8 @@ func setupLog() *os.File {
 	ts := string(t[:])
 
 	filename := fmt.Sprintf("%s.log", ts)
-	logfile := path.Join(dirs["log"], filename)
+	logfile := path.Join(config.Dirs["log"], filename)
+	log.Println("Logfile:", logfile, config.Dirs["log"])
 	f, err := os.OpenFile(logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
@@ -411,24 +421,24 @@ func (e *Episode) humanName() string {
 }
 
 func publish() {
-	dirfiles, err := ioutil.ReadDir(dirs["download"])
+	dirfiles, err := ioutil.ReadDir(config.Dirs["download"])
 	if err != nil {
 		log.Fatalf("error reading dir: %v", err)
 	}
 	for _, file := range dirfiles {
 		if path.Ext(file.Name()) == ".json" {
 			var e Episode
-			e.fromFile(path.Join(dirs["download"], file.Name()))
+			e.fromFile(path.Join(config.Dirs["download"], file.Name()))
 			if e.ProgramInfo.Title == "Turno de oficio" {
 				continue
 			}
-			dir := path.Join(dirs["publish"], e.ProgramInfo.Title)
+			dir := path.Join(config.Dirs["publish"], e.ProgramInfo.Title)
 			err := os.MkdirAll(dir, 0755)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			videofile := path.Join(dirs["download"], e.Private.Videofile)
+			videofile := path.Join(config.Dirs["download"], e.Private.Videofile)
 
 			filename := fmt.Sprintf("%s%s", e.humanName(), e.Private.Ext)
 			publishFile := path.Join(dir, filename)
@@ -449,7 +459,7 @@ func publish() {
 
 func indexFiles() {
 	log.Println("Believe it or not I'm reindexing")
-	dirfiles, err := ioutil.ReadDir(dirs["download"])
+	dirfiles, err := ioutil.ReadDir(config.Dirs["download"])
 	if err != nil {
 		log.Fatalf("error reading dir: %v", err)
 	}
@@ -457,16 +467,13 @@ func indexFiles() {
 	for _, file := range dirfiles {
 		if path.Ext(file.Name()) == ".json" {
 			var e Episode
-			e.fromFile(path.Join(dirs["download"], file.Name()))
+			e.fromFile(path.Join(config.Dirs["download"], file.Name()))
 			// fmt.Println(file.Name(), e.ID, e.Private.Size)
 			// Episode debería tener las funciones de comprobar integridad
 		}
 	}
 }
 
-func test(id int) {
-
-}
 func remoteEpisode(id int) {
 	var e Episode
 	e.ID = id
@@ -503,17 +510,20 @@ func listPrograms() {
 	}
 }
 
+var config Config
+
 func main() {
+	config.load(os.ExpandEnv("${HOME}/.local/rtve-alacarta.json"))
 	setupLog()
-	dotest := 0
+	showconfig := false
 	doindex := false
 	dolist := false
 	doepisode := 0
-	flag.BoolVar(&nocache, "c", false, "nocache")
-	flag.BoolVar(&verbose, "v", false, "verbose")
+	flag.BoolVar(&showconfig, "sc", false, "show config")
+	flag.BoolVar(&config.Nocache, "nc", false, "nocache")
+	flag.BoolVar(&config.Verbose, "v", false, "verbose")
 	flag.BoolVar(&doindex, "i", false, "reindex the whole thing")
 	flag.BoolVar(&dolist, "l", false, "list programs")
-	flag.IntVar(&dotest, "t", 0, "test algorithms")
 	flag.IntVar(&doepisode, "e", 0, "single episode")
 	flag.Parse()
 	debug("verbose active")
@@ -521,8 +531,8 @@ func main() {
 		listPrograms()
 		return
 	}
-	if dotest > 0 {
-		test(dotest)
+	if showconfig {
+		fmt.Println(config)
 		return
 	}
 	if doindex {
@@ -538,30 +548,9 @@ func main() {
 
 	log.Printf("Starting %s (PID: %d) at %s", os.Args[0], os.Getpid, time.Now().UTC())
 
-	programids := []int{
-		80170, // Pokémon XY
-		44450, // Pokémon Advanced Challenge
-		41651, // Pokémon Advanced
-		52830, // Pokémon Advanced Battle
-		68590, // Pokémon Negro y Blanco: Aventuras en Teselia
-		49230, // Pokémon Negro y Blanco
-		50650, // Desafío Champions Sendokai
-		49750, // Scooby Doo Misterios S.A.
-		51350, // Jelly Jamm
-		78590, // Turno de Oficio
-		70450, // Planeta Imaginario
-		57030, // Ruy, el pequeño Cid
-		57050, // DArtacan y los tres mosqueperros
-		57051, // La vuelta al mundo de Willy Fog
-		57052, // David el gnomo
-		82170, // Mortadelo y filemon
-		61750, // Maya
-		74752, // Slugterra
-		78210, // Los Aurones
-	}
-	for _, v := range programids {
+	for _, v := range config.Programs {
 		var p Programa
-		p.getVideos(v)
+		p.getVideos(v.Id)
 		for _, e := range p.episodios {
 			if e.stat() {
 				e.writeData() // should check if previous steps didn't work

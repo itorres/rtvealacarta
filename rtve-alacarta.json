@@ -1,0 +1,17 @@
+{
+    "dirs": {
+        "base":     "/var/rtve/",
+        "download": "/var/rtve/d",
+        "cache":    "/var/rtve/cache",
+        "log":      "/var/rtve/log",
+        "publish":  "/var/www"
+    },
+    "keys": {
+        "keyname": "keyvalue"
+    },
+    "programs": [
+        { "id": 51350, "name": "Jelly Jamm" },
+        { "id": 78590, "name": "Turno de Oficio" },
+        { "id": 78210, "name": "Los Aurones" }
+    ]
+}
