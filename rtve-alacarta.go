@@ -34,11 +34,12 @@ func stripchars(str, chr string) string {
 }
 
 type Config struct {
-	Dirs     map[string]string
-	Keys     map[string]string
-	Programs []ProgramConfig
-	Verbose  bool
-	Nocache  bool
+	Dirs         map[string]string
+	Keys         map[string]string
+	Programs     []ProgramConfig
+	Verbose      bool
+	Nocache      bool
+	ItemsPerPage int
 }
 
 type ProgramConfig struct {
@@ -190,9 +191,16 @@ func read(url string, v interface{}) error {
 		log.Fatal(err)
 	}
 	if config.Nocache || os.IsNotExist(err) || time.Now().Unix()-fi.ModTime().Unix() > 3*3600 {
-		log.Println("Downloading", url, "to cache")
+		log.Println("Fetching", url, "to cache", cache)
 		// Cache for 12h
 		res, err := http.Get(url)
+		if err != nil {
+			log.Fatalf("read http.Get error: %v", err)
+		}
+		if res.StatusCode >= 400 {
+			return fmt.Errorf("http.Get error %s downloading %s", res.StatusCode, url)
+		}
+
 		log.Printf("Reading %v", res.Request)
 
 		content, err := ioutil.ReadAll(res.Body)
@@ -220,19 +228,26 @@ func read(url string, v interface{}) error {
 	return nil
 }
 
-func (p *Programa) getVideos(programid int) {
-	url := fmt.Sprintf("http://www.rtve.es/api/programas/%d/videos?size=60", programid)
+func (p *Programa) getVideos(programid, page int) error {
+	offset := (page - 1) * config.ItemsPerPage
+	url := fmt.Sprintf("http://www.rtve.es/api/programas/%d/videos?size=%d&offset=%d&page=%d", programid, config.ItemsPerPage, offset, page)
 	var videos videosPrograma
-	if videos.Page.TotalPages > 1 {
-		log.Printf("Warning: More than 1 page of results: %d. NumElements: ", videos.Page.TotalPages, videos.Page.NumElements)
-	}
 
 	err := read(url, &videos)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return fmt.Errorf("Error downloading page %d of %d", page, programid)
 	}
-	p.episodios = videos.Page.Items
-	log.Println("Tenemos episodios de", videos.Page.Items[0].ProgramInfo.Title)
+
+	p.episodios = append(p.episodios, videos.Page.Items...)
+	log.Printf("Tenemos %d episodios de %s", videos.Page.NumElements, videos.Page.Items[0].ProgramInfo.Title)
+	if videos.Page.Number < videos.Page.TotalPages {
+		err = p.getVideos(programid, page+1)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Episode) remote(class string) int {
@@ -477,7 +492,7 @@ func remoteEpisode(id int) {
 
 }
 
-func listPrograms() {
+func listPrograms(page int) {
 	type RemotePrograms struct {
 		Page struct {
 			Items      []Programa
@@ -487,11 +502,13 @@ func listPrograms() {
 	}
 	var rp RemotePrograms
 	// var drp RemotePrograms
-	page := 1
-	url := fmt.Sprintf("http://www.rtve.es/api/agr-programas/490/programas.json?size=60&page=%d", page)
+	url := fmt.Sprintf("http://www.rtve.es/api/agr-programas/490/programas.json?size=%d&page=%d", ItemsPerPage, page)
 	err := read(url, &rp)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if rp.Page.Number < rp.Page.TotalPages {
+		listPrograms(rp.Page.Number + 1)
 	}
 	for _, v := range rp.Page.Items {
 		fmt.Printf("{ \"id\": %d, \"name\": \"%s\" },\n", v.ID, v.Name)
@@ -510,6 +527,7 @@ func main() {
 	doindex := false
 	dolist := false
 	doepisode := 0
+	config.ItemsPerPage = 50
 	flag.BoolVar(&showconfig, "sc", false, "show config")
 	flag.BoolVar(&config.Nocache, "nc", false, "nocache")
 	flag.BoolVar(&config.Verbose, "v", false, "verbose")
@@ -519,7 +537,7 @@ func main() {
 	flag.Parse()
 	debug("verbose active")
 	if dolist {
-		listPrograms()
+		listPrograms(1)
 		return
 	}
 	if showconfig {
@@ -541,7 +559,10 @@ func main() {
 
 	for _, v := range config.Programs {
 		var p Programa
-		p.getVideos(v.Id)
+		err := p.getVideos(v.Id, 1)
+		if err != nil {
+			continue
+		}
 		for _, e := range p.episodios {
 			if e.stat() {
 				e.writeData() // should check if previous steps didn't work
