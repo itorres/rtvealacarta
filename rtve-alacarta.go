@@ -135,7 +135,6 @@ func pkcsS7Padding(data []byte) []byte {
 	padding := blockSize - len(data)%blockSize
 	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
 	return append(data, padtext...)
-
 }
 
 func unpkcs7Padding(data []byte) []byte {
@@ -170,24 +169,12 @@ func cryptaes(text, key string) string {
 	return base64Out
 }
 
-func orfeo(id int, t int64) string {
-	mobilekey := "k0rf30jfpmbn8s0rcl4nTvE0ip3doRan"
-	secret := fmt.Sprintf("%d_es_%d", id, t)
-	orfeo := cryptaes(secret, mobilekey)
-	return "http://www.rtve.es/ztnr/consumer/orfeo/video/" + orfeo
-}
 func ztnrurl(id int, t int64, clase string) string {
 	baseurl := fmt.Sprintf("http://www.rtve.es/ztnr/consumer/%s/video", clase)
 
 	secret := fmt.Sprintf("%d_es_%d", id, t)
 	url := fmt.Sprintf("%s/%s", baseurl, cryptaes(secret, config.Keys[clase]))
 	return url
-}
-func oceano(id int, t int64) string {
-	tabletkey := "pmku579tg465GDjf1287gDFFED56788C"
-	secret := fmt.Sprintf("%d_es_%d", id, t)
-	oceano := cryptaes(secret, tabletkey)
-	return "http://www.rtve.es/ztnr/consumer/oceano/video/" + oceano
 }
 
 func cacheFile(url string) string {
