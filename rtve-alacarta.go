@@ -94,6 +94,7 @@ Programa is a representation of the list of available episodes of a program
 type Programa struct {
 	Name             string
 	WebOficial       string
+	WebRtve          string
 	Description      string
 	LongTitle        string
 	ShortDescription string
@@ -506,7 +507,10 @@ func listPrograms() {
 		log.Fatal(err)
 	}
 	for _, v := range rp.Page.Items {
-		fmt.Printf("%d, // %s\n", v.ID, v.Name)
+		fmt.Printf("{ \"id\": %d, \"name\": \"%s\" },\n", v.ID, v.Name)
+		if config.Verbose {
+			fmt.Printf("// %s: %s\n", v.Name, v.WebRtve)
+		}
 	}
 }
 
