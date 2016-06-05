@@ -223,7 +223,7 @@ func read(url string, v interface{}) error {
 
 	err = json.Unmarshal(content, v)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("Get error %v unmarshaling %v", err, content)
 	}
 	return nil
 }
@@ -295,11 +295,12 @@ func debug(wat ...interface{}) {
 }
 func (e *Episode) stat() bool {
 	keyorder := []string{"oceano", "carites", "orfeo", "caliope"}
-	debug("e.stat()", e.ID, e.humanName())
 
 	gotcha := false
 	for _, k := range keyorder {
-		if e.remote(k) == 200 {
+		statusCode := e.remote(k)
+		debug("e.stat()", e.ID, e.humanName(), "statusCode", statusCode)
+		if statusCode == 200 {
 			gotcha = true
 			break
 		}
@@ -374,7 +375,7 @@ func (e *Episode) download() {
 	}
 	err = os.Rename(filename+".temp", filename)
 	if err != nil {
-		log.Println("Error moving", filename+".temp", "to", filename, err)
+		log.Println("Error renaming", filename+".temp", "to", filename, err)
 		return
 	}
 	log.Println(filename, "downloaded.", n, "bytes.")
@@ -450,7 +451,7 @@ func publish() {
 			err = os.Link(videofile, publishFile)
 			if err != nil {
 				if !os.IsExist(err) {
-					log.Printf("Cannot publish: %d to %s", e.ID, publishFile)
+					log.Printf("Cannot publish %s (%d) to %s", videofile, e.ID, publishFile)
 				}
 			} else {
 				log.Printf("Published %s to %s", videofile, publishFile)
@@ -502,7 +503,7 @@ func listPrograms(page int) {
 	}
 	var rp RemotePrograms
 	// var drp RemotePrograms
-	url := fmt.Sprintf("http://www.rtve.es/api/agr-programas/490/programas.json?size=%d&page=%d", ItemsPerPage, page)
+	url := fmt.Sprintf("http://www.rtve.es/api/agr-programas/490/programas.json?size=%d&page=%d", config.ItemsPerPage, page)
 	err := read(url, &rp)
 	if err != nil {
 		log.Fatal(err)
@@ -568,7 +569,7 @@ func main() {
 				e.writeData() // should check if previous steps didn't work
 				e.download()
 			} else {
-				log.Println("Cannot stat", e)
+				log.Println("Cannot stat", e.humanName())
 			}
 		}
 	}
