@@ -195,10 +195,10 @@ func read(url string, v interface{}) error {
 		// Cache for 12h
 		res, err := http.Get(url)
 		if err != nil {
-			log.Fatalf("read http.Get error: %v", err)
+			log.Fatalf("read http. Get error: %v", err)
 		}
 		if res.StatusCode >= 400 {
-			return fmt.Errorf("http.Get error %s downloading %s", res.StatusCode, url)
+			return fmt.Errorf("http. Unexpected HTTP Status Code %s downloading %s", res.StatusCode, url)
 		}
 
 		log.Printf("Reading %v", res.Request)
@@ -223,7 +223,7 @@ func read(url string, v interface{}) error {
 
 	err = json.Unmarshal(content, v)
 	if err != nil {
-		return fmt.Errorf("Get error %v unmarshaling %v", err, content)
+		return fmt.Errorf("Got error %v unmarshaling %v", err, content)
 	}
 	return nil
 }
@@ -268,7 +268,7 @@ func (e *Episode) remote(class string) int {
 		e.Private.Ext = path.Ext(res.Request.URL.Path)
 		if e.Private.Ext == "" {
 			e.Private.Ext = ".mp4"
-			log.Println("WARNING: Empty extension. Forcing mp4.")
+			log.Println("WARNING: Empty extension. Forcing mp4. %v", e)
 		}
 		e.Private.Videofile = fmt.Sprintf("%d%s", e.ID, e.Private.Ext)
 		e.Private.Size = res.ContentLength
@@ -566,6 +566,7 @@ func main() {
 		var p Programa
 		err := p.getVideos(v.Id, 1)
 		if err != nil {
+			log.Println(err)
 			continue
 		}
 		for _, e := range p.episodios {
