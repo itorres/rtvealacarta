@@ -240,6 +240,10 @@ func (p *Programa) getVideos(programid, page int) error {
 	}
 
 	p.episodios = append(p.episodios, videos.Page.Items...)
+	if len(videos.Page.Items) == 0 {
+		return fmt.Errorf("Length 0 in videos.Page.Items for programid %d", programid)
+	}
+
 	log.Printf("Tenemos %d episodios de %s", videos.Page.NumElements, videos.Page.Items[0].ProgramInfo.Title)
 	if videos.Page.Number < videos.Page.TotalPages {
 		err = p.getVideos(programid, page+1)
