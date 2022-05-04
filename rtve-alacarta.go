@@ -265,14 +265,24 @@ func (e *Episode) remote(class string) int {
 		log.Fatal(err)
 	}
 	if res.StatusCode == 200 {
-		e.Private.Ext = path.Ext(res.Request.URL.Path)
+
+		ui := strings.Index(res.Request.URL.String(), "/playlist.m3u8")
+		e.Private.EndURL = res.Request.URL.String()[0:ui]
+
+		ei := strings.LastIndex(e.Private.EndURL, ".")
+		e.Private.Ext = e.Private.EndURL[ei:]
+
+		/* FIXME: Hack to ignore m3u8 playlists
+		rtve has changed the endurl to be hls playlists. It would be ideal
+		to download the hls fragments in parallel and then create a single file.
+		*/
+
 		if e.Private.Ext == "" {
 			e.Private.Ext = ".mp4"
 			log.Println("WARNING: Empty extension. Forcing mp4. %v", e)
 		}
 		e.Private.Videofile = fmt.Sprintf("%d%s", e.ID, e.Private.Ext)
 		e.Private.Size = res.ContentLength
-		e.Private.EndURL = res.Request.URL.String()
 		e.Private.URL = videourl
 	}
 	return res.StatusCode
