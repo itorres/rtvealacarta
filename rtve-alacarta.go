@@ -283,6 +283,8 @@ func (e *Episode) remote(class string) int {
 		}
 		e.Private.Videofile = fmt.Sprintf("%d%s", e.ID, e.Private.Ext)
 		e.Private.Size = res.ContentLength
+		// FIXME: This is not the value we want to store
+
 		e.Private.URL = videourl
 	}
 	return res.StatusCode
@@ -375,16 +377,16 @@ func (e *Episode) download() {
 	defer output.Close()
 	log.Printf("Downloading %s (%d MB) from %s (%s)", e.Private.Videofile, e.Private.Size/1024/1024, e.Private.URL, e.Private.EndURL)
 
-	response, err := http.Get(e.Private.URL)
+	response, err := http.Get(e.Private.EndURL)
 	if err != nil {
-		log.Println("Error while downloading", e.Private.URL, "-", err)
+		log.Println("Error while downloading", e.Private.EndURL, "-", err)
 		return
 	}
 	defer response.Body.Close()
 
 	n, err := io.Copy(output, response.Body)
 	if err != nil {
-		log.Println("Error while downloading", e.Private.URL, "-", err)
+		log.Println("Error while downloading", e.Private.EndURL, "-", err)
 		return
 	}
 	err = os.Rename(filename+".temp", filename)
